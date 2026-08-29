@@ -1,5 +1,3 @@
--- Run this in the Supabase SQL editor (or via the CLI) once per project.
-
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text,
@@ -44,8 +42,33 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- Image storage bucket. Images are stored under `<user id>/<filename>`
--- so row-level security can scope each row to its owner.
+create table if not exists public.extractions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  image_url text,
+  data jsonb,
+  confirmed boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+alter table public.extractions enable row level security;
+
+drop policy if exists "Users can view own extractions" on public.extractions;
+create policy "Users can view own extractions"
+  on public.extractions for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own extractions" on public.extractions;
+create policy "Users can insert own extractions"
+  on public.extractions for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own extractions" on public.extractions;
+create policy "Users can delete own extractions"
+  on public.extractions for delete
+  using (auth.uid() = user_id);
+
+create index if not exists extractions_user_id_idx on public.extractions (user_id);
 
 insert into storage.buckets (id, name, public)
 values ('images', 'images', true)
