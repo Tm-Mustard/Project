@@ -39,7 +39,7 @@ interface StagedFile {
 const MODELS = [
   {
     key: 'gemini' as const,
-    title: 'Gemini',
+    title: 'Gemini 3.6 Flash',
     subtitle: 'Lightning Fast',
     description:
       'Optimized for raw speed and high throughput. Best for clean, high-quality scans and simple documents where every second counts.',
