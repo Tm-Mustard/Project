@@ -39,7 +39,7 @@ interface StagedFile {
 const MODELS = [
   {
     key: 'gemini' as const,
-    title: 'Gemini 3.6 Flash',
+    title: 'Gemini',
     subtitle: 'Lightning Fast',
     description:
       'Optimized for raw speed and high throughput. Best for clean, high-quality scans and simple documents where every second counts.',
@@ -275,7 +275,13 @@ export function Dashboard() {
       prev.map((j) => (j.id === job.id ? { ...j, phase: 'uploading' } : j))
     )
 
-    const path = `${user.id}/${job.document_id}/${file.name}`
+    // FIX: Sanitize filename — spaces & special chars break Supabase Storage keys
+    const safeFileName = file.name
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      .replace(/_{2,}/g, '_')
+      .replace(/^[_]+|[_]+$/g, '') || 'image'
+
+    const path = `${user.id}/${job.document_id}/${safeFileName}`
     const { error: uploadError } = await supabase.storage
       .from('images')
       .upload(path, file, { upsert: true })
@@ -388,6 +394,10 @@ export function Dashboard() {
 
   /* ── retry extraction (backend retry, no re-upload) ── */
   async function retryExtraction(documentId: string) {
+    // FIX: Look up the job so we can send image_path + model to the retry endpoint
+    const job = jobs.find((j) => j.document_id === documentId)
+    if (!job || !job.imagePath) return
+
     setJobs((prev) =>
       prev.map((j) =>
         j.document_id === documentId ? { ...j, phase: 'submitting' } : j
@@ -402,7 +412,15 @@ export function Dashboard() {
         `${import.meta.env.VITE_API_URL}/documents/${documentId}/retry`,
         {
           method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          // FIX: Backend needs image_path and model to re-run extraction
+          body: JSON.stringify({
+            image_path: job.imagePath,
+            model: job.model,
+          }),
         }
       )
 

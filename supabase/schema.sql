@@ -63,6 +63,11 @@ create policy "Users can insert own extractions"
   on public.extractions for insert
   with check (auth.uid() = user_id);
 
+drop policy if exists "Users can update own extractions" on public.extractions;
+create policy "Users can update own extractions"
+  on public.extractions for update
+  using (auth.uid() = user_id);
+
 drop policy if exists "Users can delete own extractions" on public.extractions;
 create policy "Users can delete own extractions"
   on public.extractions for delete

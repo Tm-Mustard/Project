@@ -1,14 +1,13 @@
 from google.genai import types
 import json
-from clients import genai_client, supabase
+from clients import genai_client, supabase_admin
 
 
 async def run_extraction(image_path: str, model_name: str, document_id: str, user_id: str):
     try:
-        file_bytes = supabase.storage.from_("images").download(image_path)
+        file_bytes = supabase_admin.storage.from_("images").download(image_path)
 
-        prompt = """Extract all fields from this document and return ONLY valid JSON,
-no markdown formatting, no explanation, no code fences.
+        prompt = """Extract all fields from this document and return ONLY valid JSON.
 Structure: {"document_quality": "clear|partial|unreadable", "fields": {...extracted key-value pairs...}, "field_confidences": {...same keys, confidence 0-1...}}"""
 
         if model_name == "gemini":
@@ -18,30 +17,19 @@ Structure: {"document_quality": "clear|partial|unreadable", "fields": {...extrac
                     prompt,
                     types.Part.from_bytes(data=file_bytes, mime_type="image/jpeg"),
                 ],
+                config=types.GenerateContentConfig(response_mime_type="application/json")
             )
-            raw_text = response.text.strip()
+            parsed = json.loads(response.text)
         else:
-            return {"status": "extraction_failed", 
+            return {"status": "extraction_failed",
                     "message": f"Model '{model_name}' not yet supported"}
-
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
-            raw_text = raw_text.strip()
-
-        try:
-            parsed = json.loads(raw_text)
-        except json.JSONDecodeError:
-            return {"status": "extraction_failed", 
-                    "message": "Could not parse model response"}
 
         quality = parsed.get("document_quality", "clear")
         fields = parsed.get("fields", {})
         confidences = parsed.get("field_confidences", {})
 
         if quality == "unreadable":
-            return {"status": "rejected", 
+            return {"status": "rejected",
                     "reason": "Document image is too unclear to process reliably."}
 
         return {

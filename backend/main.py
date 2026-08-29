@@ -1,9 +1,13 @@
-from fastapi import FastAPI, Request
+import asyncio
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from extraction import run_extraction
 from auth import verify_user
 
 app = FastAPI()
+
+# In-memory status tracker (document_id -> result dict)
+document_status: dict[str, dict] = {}
 
 origins = [
     "https://www.openlens.space",
@@ -25,31 +29,65 @@ def status():
     return {"Status": "Connected"}
 
 
+@app.get("/documents/{document_id}")
+async def get_document(document_id: str, request: Request):
+    user_id, err = verify_user(request)
+    if err:
+        raise HTTPException(status_code=401, detail=err["message"])
+
+    if document_id not in document_status:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return document_status[document_id]
+
+
+@app.post("/documents/{document_id}/retry")
+async def retry_document(document_id: str, request: Request):
+    user_id, err = verify_user(request)
+    if err:
+        raise HTTPException(status_code=401, detail=err["message"])
+
+    data = await request.json()
+    image_path = data.get("image_path")
+    model_name = data.get("model")
+
+    if not image_path:
+        raise HTTPException(status_code=400, detail="image_path is required")
+    if not model_name:
+        raise HTTPException(status_code=400, detail="model is required")
+
+    document_status[document_id] = {"status": "processing"}
+    asyncio.create_task(_run_extraction_bg(image_path, model_name, document_id, user_id))
+
+    return {"status": "processing", "document_id": document_id}
+
+
 @app.post("/imgpip")
 async def process_img(request: Request):
     user_id, err = verify_user(request)
     if err:
-        return err
+        raise HTTPException(status_code=401, detail=err["message"])
 
-    try:
-        data = await request.json()
-        document_id = data.get("document_id")
-        model_name = data.get("model")
-        image_path = data.get("image_path")
+    data = await request.json()
+    document_id = data.get("document_id")
+    model_name = data.get("model")
+    image_path = data.get("image_path")
 
-        if not image_path:
-            return {"status": "extraction_failed", 
-                    "message": "image_path is required"}
-        if not model_name:
-            return {"status": "extraction_failed", 
-                    "message": "model is required"}
-        if not document_id:
-            return {"status": "extraction_failed", 
-                    "message": "document_id is required"}
+    if not image_path:
+        raise HTTPException(status_code=400, detail="image_path is required")
+    if not model_name:
+        raise HTTPException(status_code=400, detail="model is required")
+    if not document_id:
+        raise HTTPException(status_code=400, detail="document_id is required")
 
-        result = await run_extraction(image_path, model_name, document_id, user_id)
-        return result
+    # Kick off background extraction and return immediately
+    document_status[document_id] = {"status": "processing"}
+    asyncio.create_task(_run_extraction_bg(image_path, model_name, document_id, user_id))
 
-    except Exception as e:
-        return {"status": "extraction_failed", 
-                "message": str(e)}
+    return {"status": "processing", "document_id": document_id}
+
+
+async def _run_extraction_bg(image_path: str, model_name: str, document_id: str, user_id: str):
+    """Background task that runs extraction and updates in-memory status."""
+    result = await run_extraction(image_path, model_name, document_id, user_id)
+    document_status[document_id] = result
