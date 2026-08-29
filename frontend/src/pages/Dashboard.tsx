@@ -88,7 +88,7 @@ function downloadBlob(blob: Blob, filename: string) {
 
 /* ─── component ─── */
 export function Dashboard() {
-  const { user, profile, signOut, configured } = useAuth()
+  const { user, signOut, configured } = useAuth()
   const navigate = useNavigate()
 
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
