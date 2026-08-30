@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import geminiLogo from '../assets/gemini-logo.jpeg'
-import claudeLogo from '../assets/claude-logo.webp'
-import chatgptLogo from '../assets/chatgpt-logo.webp'
+import nemotron from "../assets/nemotron.png"
+import qwen from "../assets/qwen_logo.webp"
 
 /* ─── types ─── */
 type BackendStatus = 'processing' | 'on_review' | 'rejected' | 'extraction_failed'
@@ -57,23 +57,23 @@ const MODELS = [
   {
     key: 'gemini' as const,
     title: 'Gemini',
-    subtitle: 'Fastest Model',
+    subtitle: 'Maximum Accuracy',
     description: 'Optimized for raw speed and high throughput. Best for clean, high-quality scans and simple documents where every second counts.',
     logo: geminiLogo,
   },
   {
     key: 'qwen' as const,
     title: 'Qwen',
-    subtitle: 'Maximum Accuracy',
+    subtitle: 'Fastest Model',
     description: 'Superior OCR and handwriting recognition. Excels at complex layouts, noisy images, and fine-grained detail extraction.',
-    logo: claudeLogo,
+    logo: qwen,
   },
   {
     key: 'nemotron' as const,
     title: 'Nemotron',
     subtitle: 'Balanced Model',
     description: 'Versatile and reliable across a wide range of document types. Handles mixed content, tables, and structured forms with consistent, predictable results.',
-    logo: chatgptLogo,
+    logo: nemotron,
   },
 ]
 
