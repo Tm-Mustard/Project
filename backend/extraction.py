@@ -49,7 +49,7 @@ Structure: {"document_quality": "clear|partial|unreadable", "fields": {...extrac
         confidences = parsed.get("field_confidences", {})
 
         if quality == "unreadable":
-            return {"status": "rejected", "reason": "Document image is too unclear to process reliably."}
+            return {"status": "rejected", "reason": "Document image is too unclear to process reliably or it may not contain any text"}
 
         return {
             "status": "on_review",
