@@ -842,7 +842,6 @@ export function Dashboard() {
       {/* Header */}
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-accent">OpenLens</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-ink md:text-4xl">Welcome, {displayName}.</h1>
           <p className="mt-1 text-sm text-muted">Upload documents, extract data with AI, review, and export.</p>
         </div>
