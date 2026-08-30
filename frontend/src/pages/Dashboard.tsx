@@ -58,14 +58,14 @@ const MODELS = [
     key: 'gemini' as const,
     title: 'Gemini',
     subtitle: 'Maximum Accuracy',
-    description: 'Optimized for raw speed and high throughput. Best for clean, high-quality scans and simple documents where every second counts.',
+    description: 'Superior OCR and handwriting recognition. Excels at complex layouts, noisy images, and fine-grained detail extraction.',
     logo: geminiLogo,
   },
   {
     key: 'qwen' as const,
     title: 'Qwen',
     subtitle: 'Fastest Model',
-    description: 'Superior OCR and handwriting recognition. Excels at complex layouts, noisy images, and fine-grained detail extraction.',
+    description: 'Optimized for raw speed and high throughput. Best for clean, high-quality scans and simple documents where every second counts.',
     logo: qwen,
   },
   {
@@ -580,9 +580,35 @@ export function Dashboard() {
   async function confirmJob(jobId: string) {
     const job = jobs.find((j) => j.id === jobId)
     if (!job || job.phase !== 'on_review') return
+  
+    let historyImageUrl = job.imageUrl
+  
+    if (job.imagePath) {
+      try {
+        const ext = job.imagePath.split('.').pop()?.toLowerCase() || 'jpg'
+        const historyPath = `history/${user?.id}/${job.document_id}.${ext}`
+  
+        const { error: copyError } = await supabase.storage
+          .from('images')
+          .copy(job.imagePath, historyPath)
+  
+        if (copyError) {
+          console.error('[confirmJob] copy failed:', copyError)
+        } else {
+          const { data: historyUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(historyPath)
+          historyImageUrl = historyUrlData.publicUrl
+          console.log('[confirmJob] history image url:', historyImageUrl)
+        }
+      } catch (e) {
+        console.error('[confirmJob] unexpected error during copy:', e)
+      }
+    }
+  
     await supabase.from('extractions').insert({
       user_id: user?.id,
-      image_url: job.imageUrl,
+      image_url: historyImageUrl,
       data: job.extracted,
       confirmed: true,
     })
@@ -666,6 +692,7 @@ export function Dashboard() {
       })
       if (!res.ok) throw new Error('Failed to get answer')
       const data = await res.json()
+      console.log(data)
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         content: data.answer ?? data.response ?? 'No answer returned.',
@@ -921,7 +948,7 @@ export function Dashboard() {
       <img src={activeJob.imageUrl} alt="uploaded" className="mt-3 w-full rounded-xl border border-line object-contain lg:max-h-[calc(80vh-4rem)]" />
       {activeJob.reason && (
         <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-          <span className="font-semibold">⚠️ Document Quality Notice:</span> {activeJob.reason}
+          <span className="font-semibold">Document Quality Notice:</span> {activeJob.reason}
         </div>
       )}
     </div>
@@ -930,7 +957,9 @@ export function Dashboard() {
           <div className="rounded-2xl border border-line bg-card p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Extracted Data</h2>
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Needs Manual Review</span>
+              <span className="rounded-full bg-[#e3eee9] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#477968]">
+                Please Review
+              </span>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -942,7 +971,7 @@ export function Dashboard() {
                     <label className="flex items-center justify-between text-xs font-medium text-muted">
                       <span className={veryLow ? 'font-bold text-danger' : lowConfidence ? 'font-semibold text-amber-700' : ''}>
                         {field.label}
-                        {veryLow && ' ⚠️ Needs Verification'}
+                        {veryLow && 'Needs Verification'}
                         {lowConfidence && !veryLow && ' ❓ Review Suggested'}
                       </span>
                       {renderConfidenceBadge(field.confidence)}
