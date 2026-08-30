@@ -380,33 +380,60 @@ export function Dashboard() {
 
   /* ── single job pipeline ── */
   async function runPipeline(job: DocumentJob, file: File) {
-    if (!user) return
+    if (!user) { console.error('[pipeline] no user, aborting'); return }
+  
+    console.log('[pipeline] starting for', job.fileName, 'model:', job.model, 'document_id:', job.document_id)
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, phase: 'uploading' } : j)))
-
+  
     const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').replace(/_{2,}/g, '_').replace(/^[_]+|[_]+$/g, '') || 'image'
     const path = `${user.id}/${job.document_id}/${safeFileName}`
+    console.log('[pipeline] uploading to storage path:', path)
+  
     const { error: uploadError } = await supabase.storage.from('images').upload(path, file, { upsert: true })
-
+  
     if (uploadError) {
+      console.error('[pipeline] storage upload failed:', uploadError)
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, phase: 'network_error', message: uploadError.message } : j)))
       return
     }
-
+    console.log('[pipeline] storage upload succeeded')
+  
     const { data: urlData } = supabase.storage.from('images').getPublicUrl(path)
+    console.log('[pipeline] public url:', urlData.publicUrl)
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, imageUrl: urlData.publicUrl, imagePath: path } : j)))
-
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, phase: 'submitting' } : j)))
-
+  
+    const session = await supabase.auth.getSession()
+    const token = session.data.session?.access_token
+    console.log('[pipeline] auth token present:', !!token)
+    console.log('[pipeline] posting to:', `${import.meta.env.VITE_API_URL}/imgpip`)
+    console.log('[pipeline] payload:', { document_id: job.document_id, image_path: path, model: job.model })
+  
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => {
+      console.warn('[pipeline] request timed out after 20s')
+      controller.abort()
+    }, 20000)
+  
     try {
-      const session = await supabase.auth.getSession()
-      const token = session.data.session?.access_token
       const res = await fetch(`${import.meta.env.VITE_API_URL}/imgpip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ document_id: job.document_id, image_path: path, model: job.model }),
+        signal: controller.signal,
       })
-      if (!res.ok) throw new Error('Could not connect to the processing service')
+      clearTimeout(timeoutId)
+      console.log('[pipeline] response status:', res.status)
+  
+      if (!res.ok) {
+        const errorText = await res.text()
+        console.error('[pipeline] non-ok response body:', errorText)
+        throw new Error(`Server returned ${res.status}: ${errorText}`)
+      }
+  
       const data = await res.json()
+      console.log('[pipeline] response data:', data)
+  
       if (data.status === 'processing') {
         setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, phase: 'processing' } : j)))
         startPolling(job.document_id)
@@ -414,7 +441,11 @@ export function Dashboard() {
         handleBackendStatus(job.document_id, data)
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not connect to the processing service. Please try again.'
+      clearTimeout(timeoutId)
+      console.error('[pipeline] fetch error:', err)
+      const msg = err instanceof Error && err.name === 'AbortError'
+        ? 'Request timed out. The server took too long to respond — please retry.'
+        : err instanceof Error ? err.message : 'Could not connect to the processing service. Please try again.'
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, phase: 'network_error', message: msg } : j)))
     }
   }
