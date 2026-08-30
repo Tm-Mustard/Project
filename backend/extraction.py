@@ -1,45 +1,29 @@
-from google import genai
-from google.genai import types
-import json
+from clients import supabase_admin
+from cvfile import process_image
+from models import gemini_model, qwen_model, nemotron_model
 
-from clients import gemini_keys, gemini_key_cycle, supabase_admin
+MODEL_ROUTER = {
+    "gemini": gemini_model.run,
+    "qwen": qwen_model.run,
+    "nemotron": nemotron_model.run,
+}
 
 
 async def run_extraction(image_path: str, model_name: str, document_id: str, user_id: str):
     try:
         file_bytes = supabase_admin.storage.from_("images").download(image_path)
 
-        prompt = """Extract all fields from this document and return ONLY valid JSON.
-Structure: {"document_quality": "clear|partial|unreadable", "fields": {...extracted key-value pairs...}, "field_confidences": {...same keys, confidence 0-1...}}"""
+        preprocess_result = process_image(file_bytes)
+        if preprocess_result["status"] == "rejected":
+            return {"status": "rejected", "reason": preprocess_result["reason"]}
 
-        if model_name != "gemini":
-            return {"status": "extraction_failed", "message": f"Model '{model_name}' not yet supported"}
+        processed_bytes = preprocess_result["image_bytes"]
 
-        parsed = None
-        last_error = None
-        tried_keys = set()
+        model_fn = MODEL_ROUTER.get(model_name)
+        if model_fn is None:
+            return {"status": "extraction_failed", "message": f"Model '{model_name}' not supported"}
 
-        while len(tried_keys) < len(gemini_keys):
-            key = next(gemini_key_cycle)
-            if key in tried_keys:
-                continue
-            tried_keys.add(key)
-
-            try:
-                client = genai.Client(api_key=key)
-                response = client.models.generate_content(
-                    model="gemini-3.6-flash",
-                    contents=[
-                        prompt,
-                        types.Part.from_bytes(data=file_bytes, mime_type="image/jpeg"),
-                    ],
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                parsed = json.loads(response.text)
-                break
-            except Exception as e:
-                last_error = e
-                continue
+        parsed, last_error = model_fn(processed_bytes)
 
         if parsed is None:
             return {"status": "extraction_failed", "message": f"All API keys exhausted: {last_error}"}
