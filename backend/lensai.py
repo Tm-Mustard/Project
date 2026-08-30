@@ -9,7 +9,8 @@ Rules:
 - Be concise but accurate.
 - If the data does not contain the answer, say so clearly.
 - For math, comparisons, or summaries, show brief reasoning then the final answer.
-- Do not hallucinate information not present in the extracted data."""
+- Do not hallucinate information not present in the extracted data.
+- Do not use quotation marks (") anywhere in your reply."""
 
 
 def ask_question(question: str, context: dict, document_id: str = ""):
