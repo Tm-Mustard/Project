@@ -1,14 +1,42 @@
 import openai
 import base64
 import json
+import re
 
 from clients import openrouter_keys, openrouter_key_cycle
 
-PROMPT = """Extract all fields from this document and return ONLY valid JSON.
+PROMPT = """Extract all fields from this document and return ONLY valid JSON, with no explanation, no markdown code fences, and no text before or after the JSON object.
 Structure: {"document_quality": "clear|partial|unreadable", "fields": {...extracted key-value pairs...}, "field_confidences": {...same keys, confidence 0-1...}}"""
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MODEL_NAME = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+
+
+def _extract_json(raw_text: str):
+    """
+    This model does NOT support response_format (per OpenRouter docs), so it
+    can return prose, markdown fences, or reasoning text around the JSON.
+    Strip fences first, then fall back to grabbing the first {...} block.
+    """
+    text = raw_text.strip()
+
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: find the first top-level {...} object anywhere in the text
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(0))
+
+    raise json.JSONDecodeError("No JSON object found in response", text, 0)
 
 
 def run(image_bytes: bytes):
@@ -34,7 +62,12 @@ def run(image_bytes: bytes):
             )
             response = client.chat.completions.create(
                 model=MODEL_NAME,
-                response_format={"type": "json_object"},
+                # NOTE: response_format is NOT supported by this model on
+                # OpenRouter's free endpoint — passing it does nothing
+                # (and can make the model wrap the JSON in extra text).
+                # Reasoning is turned off so it answers directly instead of
+                # emitting reasoning traces that pollute the content field.
+                extra_body={"reasoning": {"enabled": False}},
                 messages=[{
                     "role": "user",
                     "content": [
@@ -49,7 +82,6 @@ def run(image_bytes: bytes):
 
             msg = response.choices[0].message
 
-            # CRITICAL FIX: content can be None on OpenRouter free tier
             if msg.content is None:
                 last_error = Exception(
                     f"Nemotron returned empty content (refusal/filter). "
@@ -62,9 +94,12 @@ def run(image_bytes: bytes):
                 last_error = Exception("Nemotron returned empty text after strip")
                 continue
 
-            parsed = json.loads(raw_text)
+            try:
+                parsed = _extract_json(raw_text)
+            except json.JSONDecodeError as e:
+                last_error = Exception(f"Nemotron did not return parseable JSON: {e}. Raw: {raw_text[:300]}")
+                continue
 
-            # CRITICAL FIX: Ensure parsed is a dict
             if not isinstance(parsed, dict):
                 last_error = Exception(f"Nemotron returned non-dict JSON: {parsed}")
                 parsed = None

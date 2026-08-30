@@ -26,7 +26,33 @@ def run(image_bytes: bytes):
                     PROMPT,
                     types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                 ],
-                config=types.GenerateContentConfig(response_mime_type="application/json")
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    # CRITICAL FIX: document/ID scans (passports, marksheets,
+                    # forms with photos/personal info) can trip Gemini's
+                    # default safety thresholds and get blocked with no
+                    # candidates returned. Loosen the 4 adjustable
+                    # categories to cut down false-positive blocks. Some
+                    # core protections (e.g. CSAM) are never adjustable.
+                    safety_settings=[
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_HARASSMENT",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_HATE_SPEECH",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                        types.SafetySetting(
+                            category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                            threshold="BLOCK_ONLY_HIGH",
+                        ),
+                    ],
+                )
             )
 
             # CRITICAL FIX: check for a safety-blocked/empty response BEFORE
