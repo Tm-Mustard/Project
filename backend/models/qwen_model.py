@@ -28,7 +28,7 @@ def run(image_bytes: bytes):
             response = client.chat.completions.create(
                 model=MODEL_NAME,
                 response_format={"type": "json_object"},
-                reasoning_effort="none",  # instruct mode — fast, direct JSON extraction
+                reasoning_effort="none",
                 messages=[{
                     "role": "user",
                     "content": [
@@ -40,9 +40,30 @@ def run(image_bytes: bytes):
                     ],
                 }],
             )
-            raw_text = response.choices[0].message.content.strip()
+
+            msg = response.choices[0].message
+
+            if msg.content is None:
+                last_error = Exception(
+                    f"Qwen returned empty content. "
+                    f"Finish reason: {getattr(msg, 'finish_reason', 'unknown')}"
+                )
+                continue
+
+            raw_text = msg.content.strip()
+            if not raw_text:
+                last_error = Exception("Qwen returned empty text after strip")
+                continue
+
             parsed = json.loads(raw_text)
+
+            if not isinstance(parsed, dict):
+                last_error = Exception(f"Qwen returned non-dict JSON: {parsed}")
+                parsed = None
+                continue
+
             break
+
         except Exception as e:
             last_error = e
             continue

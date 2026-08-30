@@ -35,11 +35,9 @@ async def get_document(document_id: str, request: Request):
     user_id, err = verify_user(request)
     if err:
         raise HTTPException(status_code=401, detail=err["message"])
-        print(err)
 
     if document_id not in document_status:
         raise HTTPException(status_code=404, detail="Document not found")
-    print("Document recived")
     return document_status[document_id]
 
 
@@ -114,5 +112,12 @@ async def ask(request: Request):
 
 async def _run_extraction_bg(image_path: str, model_name: str, document_id: str, user_id: str):
     """Background task that runs extraction and updates in-memory status."""
-    result = await run_extraction(image_path, model_name, document_id, user_id)
-    document_status[document_id] = result
+    try:
+        result = await run_extraction(image_path, model_name, document_id, user_id)
+        document_status[document_id] = result
+    except Exception as e:
+        # CRITICAL FIX: If the background task crashes, update status so frontend stops polling
+        document_status[document_id] = {
+            "status": "extraction_failed",
+            "message": f"Background task crashed: {str(e)}"
+        }

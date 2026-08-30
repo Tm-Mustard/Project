@@ -1,3 +1,4 @@
+import asyncio
 from clients import supabase_admin
 from cvfile import process_image
 from models import gemini_model, qwen_model, nemotron_model
@@ -11,9 +12,12 @@ MODEL_ROUTER = {
 
 async def run_extraction(image_path: str, model_name: str, document_id: str, user_id: str):
     try:
-        file_bytes = supabase_admin.storage.from_("images").download(image_path)
+        # CRITICAL FIX: Run blocking Supabase + CV operations in a thread
+        file_bytes = await asyncio.to_thread(
+            lambda: supabase_admin.storage.from_("images").download(image_path)
+        )
 
-        preprocess_result = process_image(file_bytes)
+        preprocess_result = await asyncio.to_thread(process_image, file_bytes)
         if preprocess_result["status"] == "rejected":
             return {"status": "rejected", "reason": preprocess_result["reason"]}
 
@@ -23,7 +27,8 @@ async def run_extraction(image_path: str, model_name: str, document_id: str, use
         if model_fn is None:
             return {"status": "extraction_failed", "message": f"Model '{model_name}' not supported"}
 
-        parsed, last_error = model_fn(processed_bytes)
+        # CRITICAL FIX: Run blocking model inference in a thread so it doesn't hang the event loop
+        parsed, last_error = await asyncio.to_thread(model_fn, processed_bytes)
 
         if parsed is None:
             return {"status": "extraction_failed", "message": f"All API keys exhausted: {last_error}"}

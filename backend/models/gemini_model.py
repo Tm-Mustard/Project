@@ -28,8 +28,22 @@ def run(image_bytes: bytes):
                 ],
                 config=types.GenerateContentConfig(response_mime_type="application/json")
             )
-            parsed = json.loads(response.text)
+
+            raw_text = response.text
+            if raw_text is None:
+                last_error = Exception("Gemini returned empty/blocked response (text is None)")
+                continue
+
+            parsed = json.loads(raw_text)
+
+            # CRITICAL FIX: Ensure parsed is a dict, not None or a list/string
+            if not isinstance(parsed, dict):
+                last_error = Exception(f"Gemini returned non-dict JSON: {parsed}")
+                parsed = None
+                continue
+
             break
+
         except Exception as e:
             last_error = e
             continue

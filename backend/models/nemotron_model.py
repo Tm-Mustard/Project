@@ -46,9 +46,32 @@ def run(image_bytes: bytes):
                     ],
                 }],
             )
-            raw_text = response.choices[0].message.content.strip()
+
+            msg = response.choices[0].message
+
+            # CRITICAL FIX: content can be None on OpenRouter free tier
+            if msg.content is None:
+                last_error = Exception(
+                    f"Nemotron returned empty content (refusal/filter). "
+                    f"Finish reason: {getattr(msg, 'finish_reason', 'unknown')}"
+                )
+                continue
+
+            raw_text = msg.content.strip()
+            if not raw_text:
+                last_error = Exception("Nemotron returned empty text after strip")
+                continue
+
             parsed = json.loads(raw_text)
+
+            # CRITICAL FIX: Ensure parsed is a dict
+            if not isinstance(parsed, dict):
+                last_error = Exception(f"Nemotron returned non-dict JSON: {parsed}")
+                parsed = None
+                continue
+
             break
+
         except Exception as e:
             last_error = e
             continue
