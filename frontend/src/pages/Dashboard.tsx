@@ -148,7 +148,6 @@ export function Dashboard() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [selectedFailedIds, setSelectedFailedIds] = useState<Set<string>>(new Set())
-  const [darkMode, setDarkMode] = useState(false)
   const [history, setHistory] = useState<HistoryRecord[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [mergeViewOpen, setMergeViewOpen] = useState(false)
