@@ -29,6 +29,21 @@ def run(image_bytes: bytes):
                 config=types.GenerateContentConfig(response_mime_type="application/json")
             )
 
+            # CRITICAL FIX: check for a safety-blocked/empty response BEFORE
+            # touching response.text, since accessing .text when candidates
+            # is None raises "'NoneType' object is not subscriptable"
+            # instead of a clear error. This happens often on ID/passport
+            # style documents that trip Gemini's safety filters.
+            if not response.candidates:
+                block_reason = None
+                if getattr(response, "prompt_feedback", None):
+                    block_reason = getattr(response.prompt_feedback, "block_reason", None)
+                last_error = Exception(
+                    f"Gemini blocked/filtered the response (no candidates). "
+                    f"Block reason: {block_reason}"
+                )
+                continue
+
             raw_text = response.text
             if raw_text is None:
                 last_error = Exception("Gemini returned empty/blocked response (text is None)")
