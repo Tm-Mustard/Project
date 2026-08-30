@@ -23,7 +23,7 @@ interface DocumentJob {
   imageUrl: string
   imagePath: string
   fileName: string
-  model: 'gemini' | 'claude' | 'gpt'
+  model: 'gemini' | 'qwen' | 'nemotron'
   phase: Phase
   extracted: ExtractedField[]
   reason?: string
@@ -62,15 +62,15 @@ const MODELS = [
     logo: geminiLogo,
   },
   {
-    key: 'claude' as const,
-    title: 'Claude',
+    key: 'qwen' as const,
+    title: 'Qwen',
     subtitle: 'Maximum Accuracy',
     description: 'Superior OCR and handwriting recognition. Excels at complex layouts, noisy images, and fine-grained detail extraction.',
     logo: claudeLogo,
   },
   {
-    key: 'gpt' as const,
-    title: 'ChatGPT',
+    key: 'nemotron' as const,
+    title: 'Nemotron',
     subtitle: 'Balanced Model',
     description: 'Versatile and reliable across a wide range of document types. Handles mixed content, tables, and structured forms with consistent, predictable results.',
     logo: chatgptLogo,
@@ -143,9 +143,29 @@ export function Dashboard() {
   const navigate = useNavigate()
 
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
-  const [selectedModel, setSelectedModel] = useState<'gemini' | 'claude' | 'gpt' | null>(null)
-  const [jobs, setJobs] = useState<DocumentJob[]>([])
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [selectedModel, setSelectedModel] = useState<'gemini' | 'qwen' | 'nemotron' | null>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      return raw ? (JSON.parse(raw).selectedModel ?? null) : null
+    } catch { return null }
+  })
+  const [jobs, setJobs] = useState<DocumentJob[]>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (!raw) return []
+      const state = JSON.parse(raw)
+      if (!state.jobs || !Array.isArray(state.jobs)) return []
+      return state.jobs
+        .filter((j: DocumentJob) => !j.imageUrl?.startsWith('blob:'))
+        .map((j: DocumentJob) => ({ ...j, originalFile: undefined }))
+    } catch { return [] }
+  })
+  const [activeJobId, setActiveJobId] = useState<string | null>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      return raw ? (JSON.parse(raw).activeJobId ?? null) : null
+    } catch { return null }
+  })
   const [dragOver, setDragOver] = useState(false)
   const [selectedFailedIds, setSelectedFailedIds] = useState<Set<string>>(new Set())
   const [history, setHistory] = useState<HistoryRecord[]>([])
@@ -175,27 +195,14 @@ export function Dashboard() {
 
   const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'there'
 
-  /* ── load persisted state on mount ── */
+
+  /* ── restart polling for in-progress jobs after refresh ── */
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (!raw) return
-      const state = JSON.parse(raw)
-      if (state.selectedModel) setSelectedModel(state.selectedModel)
-      if (state.activeJobId) setActiveJobId(state.activeJobId)
-      if (state.jobs && Array.isArray(state.jobs)) {
-        const recovered = state.jobs
-          .filter((j: DocumentJob) => !j.imageUrl?.startsWith('blob:'))
-          .map((j: DocumentJob) => ({ ...j, originalFile: undefined }))
-        setJobs(recovered)
-        recovered.forEach((j: DocumentJob) => {
-          if (j.phase === 'processing') startPolling(j.document_id)
-        })
-      }
-    } catch { /* ignore */ }
+    jobs.forEach((j) => {
+      if (j.phase === 'processing') startPolling(j.document_id)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
   /* ── persist state ── */
   useEffect(() => {
     try {
