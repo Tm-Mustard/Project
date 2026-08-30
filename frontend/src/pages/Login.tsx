@@ -69,7 +69,7 @@ export function Login() {
       </form>
       <p className="mt-6 text-sm text-muted">
         No account yet?{' '}
-        <Link to="/signup" className="font-medium text-accent hover:underline">
+        <Link to="/signup" className="font-medium text-accent hover:underline cursor-pointer">
           Sign up
         </Link>
       </p>
