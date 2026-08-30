@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from extraction import run_extraction
 from auth import verify_user
+from lensai import ask_question
 
 app = FastAPI()
 
@@ -85,6 +86,29 @@ async def process_img(request: Request):
     asyncio.create_task(_run_extraction_bg(image_path, model_name, document_id, user_id))
 
     return {"status": "processing", "document_id": document_id}
+
+
+@app.post("/ask")
+async def ask(request: Request):
+    user_id, err = verify_user(request)
+    if err:
+        raise HTTPException(status_code=401, detail=err["message"])
+
+    data = await request.json()
+    question = data.get("question")
+    context = data.get("context")
+    document_id = data.get("document_id")
+
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    if context is None:
+        raise HTTPException(status_code=400, detail="context is required")
+
+    result = ask_question(question, context, document_id)
+    if "error" in result:
+        raise HTTPException(status_code=503, detail=result["error"])
+
+    return result
 
 
 async def _run_extraction_bg(image_path: str, model_name: str, document_id: str, user_id: str):
