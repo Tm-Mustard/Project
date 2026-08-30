@@ -9,6 +9,7 @@ Vite + React app with email auth and a restricted dashboard. Accounts live in Su
 3. Copy `.env.example` to `.env` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from **Project Settings → API**.
 4. For local testing, you can turn off **Confirm email** under **Authentication → Providers → Email**.
 5. Install and run:
+6. Learning git rn
 
 ```bash
 npm install
