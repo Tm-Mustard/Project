@@ -8,7 +8,7 @@ import qwen from "../assets/qwen_logo.webp"
 
 /* ─── types ─── */
 type BackendStatus = 'processing' | 'on_review' | 'rejected' | 'extraction_failed'
-type Phase = 'idle' | 'uploading' | 'submitting' | 'processing' | 'on_review' | 'rejected' | 'extraction_failed' | 'network_error' | 'confirmed'
+type Phase = 'idle' | 'uploading' | 'submitting' | 'processing' | 'on_review' | 'rejected' | 'extraction_failed' | 'network_error' | 'confirmed' | 'cancelled'
 
 interface ExtractedField {
   id: string
@@ -179,6 +179,7 @@ export function Dashboard() {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const pollIntervals = useRef<Map<string, number>>(new Map())
 
+  const cancelledIds = useRef<Set<string>>(new Set())
   const activeJob = jobs.find((j) => j.id === activeJobId) ?? null
 
   const processingJobs = jobs.filter((j) =>
@@ -326,6 +327,14 @@ export function Dashboard() {
     }, 2000)
     pollIntervals.current.set(documentId, interval)
   }
+  function cancelJob(jobId: string) {
+    const job = jobs.find((j) => j.id === jobId)
+    if (!job) return
+    cancelledIds.current.add(job.document_id)
+    stopPolling(job.document_id)
+    setJobs((prev) => prev.filter((j) => j.id !== jobId))
+    setActiveJobId((prev) => (prev === jobId ? null : prev))
+  }
 
   function stopPolling(documentId: string) {
     const id = pollIntervals.current.get(documentId)
@@ -336,6 +345,7 @@ export function Dashboard() {
   }
 
   function handleBackendStatus(documentId: string, data: any) {
+    if (cancelledIds.current.has(documentId)) return
     const status = data.status as BackendStatus
     if (status === 'processing') {
       setJobs((prev) =>
@@ -813,55 +823,60 @@ export function Dashboard() {
 
       {/* ── Processing Jobs ── */}
       {processingJobs.length > 0 && (
-        <section className="mt-8 rounded-2xl border border-line bg-card p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-            Processing ({processingJobs.length})
-          </h2>
-          <div className="mt-3 space-y-3">
-            {processingJobs.map((job) => (
-              <div
-                key={job.id}
-                className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-line bg-paper p-4"
-              >
-                {/* Image + text content: always side-by-side */}
-                <div className="flex items-start gap-3 min-w-0 flex-1">
-                  <img
-                    src={job.imageUrl}
-                    alt=""
-                    className="h-14 w-14 shrink-0 rounded-lg border border-line object-cover"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-ink">
-                      {job.fileName}
-                    </p>
-                    {/* Status line wraps on mobile instead of overflowing */}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
-                      <span className="text-xs font-medium text-accent">
-                        {job.phase === 'uploading'
-                          ? 'Uploading document…'
-                          : job.phase === 'submitting'
-                            ? 'Starting document analysis…'
-                            : 'Analyzing document…'}
-                      </span>
-                      {job.phase === 'processing' && (
-                        <span className="text-xs text-muted">
-                          Checking image quality and extracting information.
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Badge drops below on mobile, sits inline on desktop */}
-                <span className="self-start sm:self-auto shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-accent">
-                  {job.phase}
+  <section className="mt-8 rounded-2xl border border-line bg-card p-5 shadow-sm">
+    <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+      Processing ({processingJobs.length})
+    </h2>
+    <div className="mt-3 space-y-3">
+      {processingJobs.map((job) => (
+        <div
+          key={job.id}
+          className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-line bg-paper p-4"
+        >
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <img
+              src={job.imageUrl}
+              alt=""
+              className="h-14 w-14 shrink-0 rounded-lg border border-line object-cover"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-ink">
+                {job.fileName}
+              </p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+                <span className="text-xs font-medium text-accent">
+                  {job.phase === 'uploading'
+                    ? 'Uploading document…'
+                    : job.phase === 'submitting'
+                      ? 'Starting document analysis…'
+                      : 'Analyzing document…'}
                 </span>
+                {job.phase === 'processing' && (
+                  <span className="text-xs text-muted">
+                    Checking image quality and extracting information.
+                  </span>
+                )}
               </div>
-            ))}
+            </div>
           </div>
-        </section>
-      )}
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-accent">
+              {job.phase}
+            </span>
+            <button
+              onClick={() => cancelJob(job.id)}
+              className="shrink-0 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger/20 cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+)}
 
 {/* ── Active Review Workspace ── */}
 {activeJob && activeJob.phase === 'on_review' && (
