@@ -12,19 +12,12 @@ Rules:
 - Do not hallucinate information not present in the extracted data.
 - Do not use quotation marks (") anywhere in your reply."""
 
-
 def ask_question(question: str, context: dict, document_id: str = ""):
-    """
-    Ask a question about extracted document fields.
-    Returns {"answer": str} on success or {"error": str} on failure.
-    """
     context_str = json.dumps(context, indent=2, ensure_ascii=False)
-
     user_prompt = f"""Extracted document fields:
 {context_str}
 
 User question: {question}
-
 Answer based strictly on the extracted fields above."""
 
     tried_keys = set()
@@ -35,20 +28,17 @@ Answer based strictly on the extracted fields above."""
         if key in tried_keys:
             continue
         tried_keys.add(key)
-
         try:
             client = genai.Client(api_key=key)
-            response = client.models.generate_content(
+            chat = client.chats.create(
                 model="gemini-3.6-flash",
-                contents=[
-                    SYSTEM_PROMPT,
-                    user_prompt,
-                ],
                 config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
                     temperature=0.3,
                     max_output_tokens=2048,
                 ),
             )
+            response = chat.send_message(user_prompt)
             answer = response.text.strip()
             return {"answer": answer}
         except Exception as e:

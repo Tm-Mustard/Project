@@ -58,14 +58,14 @@ const MODELS = [
     key: 'gemini' as const,
     title: 'Gemini',
     subtitle: 'Maximum Accuracy',
-    description: 'Optimized for raw speed and high throughput. Best for clean, high-quality scans and simple documents where every second counts.',
+    description: 'Superior OCR and handwriting recognition. Excels at complex layouts, noisy images, and fine-grained detail extraction.',
     logo: geminiLogo,
   },
   {
     key: 'qwen' as const,
     title: 'Qwen',
     subtitle: 'Fastest Model',
-    description: 'Superior OCR and handwriting recognition. Excels at complex layouts, noisy images, and fine-grained detail extraction.',
+    description: 'Optimized for raw speed and high throughput. Best for clean, high-quality scans and simple documents where every second counts.',
     logo: qwen,
   },
   {
@@ -196,7 +196,16 @@ export function Dashboard() {
 
   const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'there'
 
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set())
 
+  function toggleHistorySelection(id: string) {
+    setSelectedHistoryIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   /* ── restart polling for in-progress jobs after refresh ── */
   useEffect(() => {
     jobs.forEach((j) => {
@@ -577,12 +586,49 @@ export function Dashboard() {
     )
   }
 
+  function updateFieldLabel(jobId: string, fieldId: string, label: string) {
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id === jobId && j.phase === 'on_review'
+          ? { ...j, extracted: j.extracted.map((f) => (f.id === fieldId ? { ...f, label } : f)) }
+          : j
+      )
+    )
+  }
+
+
   async function confirmJob(jobId: string) {
     const job = jobs.find((j) => j.id === jobId)
     if (!job || job.phase !== 'on_review') return
+  
+    let historyImageUrl = job.imageUrl
+  
+    if (job.imagePath) {
+      try {
+        const ext = job.imagePath.split('.').pop()?.toLowerCase() || 'jpg'
+        const historyPath = `history/${user?.id}/${job.document_id}.${ext}`
+  
+        const { error: copyError } = await supabase.storage
+          .from('images')
+          .copy(job.imagePath, historyPath)
+  
+        if (copyError) {
+          console.error('[confirmJob] copy failed:', copyError)
+        } else {
+          const { data: historyUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(historyPath)
+          historyImageUrl = historyUrlData.publicUrl
+          console.log('[confirmJob] history image url:', historyImageUrl)
+        }
+      } catch (e) {
+        console.error('[confirmJob] unexpected error during copy:', e)
+      }
+    }
+  
     await supabase.from('extractions').insert({
       user_id: user?.id,
-      image_url: job.imageUrl,
+      image_url: historyImageUrl,
       data: job.extracted,
       confirmed: true,
     })
@@ -606,6 +652,50 @@ export function Dashboard() {
       await deleteImageFromStorage(job.imagePath)
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, deletedFromStorage: true } : j)))
     }
+  }
+  function exportHistoryCSV(h: HistoryRecord) {
+    const headers = h.data.map((f) => f.label).join(',')
+    const values = h.data.map((f) => `"${f.value.replace(/"/g, '""')}"`).join(',')
+    const blob = new Blob([`${headers}\n${values}`], { type: 'text/csv' })
+    downloadBlob(blob, `history-${h.id}.csv`)
+  }
+  
+  function exportHistoryExcel(h: HistoryRecord) {
+    const rows = h.data.map(
+      (f) => `<Row><Cell><Data ss:Type="String">${f.label}</Data></Cell><Cell><Data ss:Type="String">${f.value}</Data></Cell></Row>`
+    ).join('')
+    const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sheet1"><Table>${rows}</Table></Worksheet></Workbook>`
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
+    downloadBlob(blob, `history-${h.id}.xls`)
+  }
+  
+  function exportSelectedHistoryCSV(selected: HistoryRecord[]) {
+    const allLabels = Array.from(new Set(selected.flatMap((h) => h.data.map((f) => f.label))))
+    const headers = ['Date', ...allLabels].join(',')
+    const rows = selected.map((h) => {
+      const fieldMap = new Map(h.data.map((f) => [f.label, f.value]))
+      const values = allLabels.map((l) => `"${(fieldMap.get(l) ?? '').replace(/"/g, '""')}"`).join(',')
+      return `"${new Date(h.created_at).toLocaleString()}",${values}`
+    })
+    const blob = new Blob([`${headers}\n${rows.join('\n')}`], { type: 'text/csv' })
+    downloadBlob(blob, `history-batch-${Date.now()}.csv`)
+  }
+  
+  function exportSelectedHistoryExcel(selected: HistoryRecord[]) {
+    const allLabels = Array.from(new Set(selected.flatMap((h) => h.data.map((f) => f.label))))
+    const headerRow = `<Row>${['Date', ...allLabels].map((l) => `<Cell><Data ss:Type="String">${l}</Data></Cell>`).join('')}</Row>`
+    const dataRows = selected.map((h) => {
+      const fieldMap = new Map(h.data.map((f) => [f.label, f.value]))
+      const cells = ['Date', ...allLabels].map((l) =>
+        l === 'Date'
+          ? `<Cell><Data ss:Type="String">${new Date(h.created_at).toLocaleString()}</Data></Cell>`
+          : `<Cell><Data ss:Type="String">${fieldMap.get(l) ?? ''}</Data></Cell>`
+      ).join('')
+      return `<Row>${cells}</Row>`
+    }).join('')
+    const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sheet1"><Table>${headerRow}${dataRows}</Table></Worksheet></Workbook>`
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
+    downloadBlob(blob, `history-batch-${Date.now()}.xls`)
   }
 
   async function exportExcel(job: DocumentJob) {
@@ -666,6 +756,7 @@ export function Dashboard() {
       })
       if (!res.ok) throw new Error('Failed to get answer')
       const data = await res.json()
+      console.log(data)
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         content: data.answer ?? data.response ?? 'No answer returned.',
@@ -707,6 +798,79 @@ export function Dashboard() {
       </span>
     )
   }
+  function HistoryCard({
+    h,
+    formatDate,
+    selected,
+    onToggleSelect,
+    onExportCSV,
+    onExportExcel,
+  }: {
+    h: HistoryRecord
+    formatDate: (v: string) => string
+    selected: boolean
+    onToggleSelect: (e: React.MouseEvent) => void
+    onExportCSV: (e: React.MouseEvent) => void
+    onExportExcel: (e: React.MouseEvent) => void
+  }) {
+    const [expanded, setExpanded] = useState(false)
+  
+    return (
+      <div
+        className={`rounded-xl border-2 bg-paper p-3 cursor-pointer transition ${selected ? 'border-accent bg-accent/5' : 'border-line hover:border-accent'} ${!expanded ? 'h-64 overflow-hidden' : ''}`}
+        onClick={() => setExpanded((s) => !s)}
+      >
+        <div className="relative">
+          <img
+            src={h.image_url}
+            alt=""
+            className={`w-full rounded-lg object-cover transition-all duration-300 ${expanded ? 'h-48' : 'h-24'}`}
+          />
+          <button
+            onClick={onToggleSelect}
+            className={`absolute top-2 left-2 h-5 w-5 rounded border-2 flex items-center justify-center transition cursor-pointer ${selected ? 'bg-accent border-accent text-white' : 'bg-white/80 border-line'}`}
+          >
+            {selected && <span className="text-[10px] font-bold">✓</span>}
+          </button>
+        </div>
+  
+        <div className="mt-2 space-y-1">
+          {(expanded ? h.data : h.data.slice(0, 3)).map((f) => (
+            <div key={f.id} className="flex justify-between text-xs gap-2">
+              <span className="text-muted shrink-0">{f.label}:</span>
+              <span className={`text-ink text-right ${expanded ? 'break-all' : 'truncate'}`}>{f.value}</span>
+            </div>
+          ))}
+          {!expanded && h.data.length > 3 && (
+            <p className="text-[10px] text-accent">+{h.data.length - 3} more fields — click to expand</p>
+          )}
+        </div>
+  
+        <div className="mt-2 flex items-center justify-between">
+          <p className="text-[10px] text-muted">{formatDate(h.created_at)}</p>
+          <span className="text-[10px] text-accent font-medium">{expanded ? 'collapse ▲' : 'expand ▼'}</span>
+        </div>
+  
+        {expanded && (
+          <div className="mt-3 flex gap-2" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={onExportCSV}
+              className="flex-1 rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-card cursor-pointer"
+            >
+              Download CSV
+            </button>
+            <button
+              onClick={onExportExcel}
+              className="flex-1 rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-card cursor-pointer"
+            >
+              Download Excel
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       {/* Header */}
@@ -734,31 +898,52 @@ export function Dashboard() {
 
       {/* History Panel */}
       {showHistory && (
-        <section className="mb-8 rounded-2xl border border-line bg-card p-5 shadow-sm">
+      <section className="mb-8 rounded-2xl border border-line bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Extraction History</h2>
-          {history.length === 0 ? (
-            <p className="mt-3 text-sm text-muted">No confirmed extractions yet.</p>
-          ) : (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {history.map((h) => (
-                <div key={h.id} className="rounded-xl border border-line bg-paper p-3">
-                  <img src={h.image_url} alt="" className="h-24 w-full rounded-lg object-cover" />
-                  <div className="mt-2 space-y-1">
-                    {h.data.slice(0, 3).map((f) => (
-                      <div key={f.id} className="flex justify-between text-xs">
-                        <span className="text-muted">{f.label}:</span>
-                        <span className="truncate text-ink">{f.value}</span>
-                      </div>
-                    ))}
-                    {h.data.length > 3 && <p className="text-[10px] text-muted">+{h.data.length - 3} more fields</p>}
-                  </div>
-                  <p className="mt-2 text-[10px] text-muted">{formatDate(h.created_at)}</p>
-                </div>
-              ))}
+          {selectedHistoryIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted">{selectedHistoryIds.size} selected</span>
+              <button
+                onClick={() => exportSelectedHistoryCSV(history.filter((h) => selectedHistoryIds.has(h.id)))}
+                className="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-card cursor-pointer"
+              >
+                Export CSV
+              </button>
+              <button
+                onClick={() => exportSelectedHistoryExcel(history.filter((h) => selectedHistoryIds.has(h.id)))}
+                className="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-card cursor-pointer"
+              >
+                Export Excel
+              </button>
+              <button
+                onClick={() => setSelectedHistoryIds(new Set())}
+                className="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-muted transition hover:bg-card cursor-pointer"
+              >
+                Clear
+              </button>
             </div>
           )}
-        </section>
-      )}
+        </div>
+        {history.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">No confirmed extractions yet.</p>
+        ) : (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-start">
+            {history.map((h) => (
+              <HistoryCard
+                key={h.id}
+                h={h}
+                formatDate={formatDate}
+                selected={selectedHistoryIds.has(h.id)}
+                onToggleSelect={(e) => { e.stopPropagation(); toggleHistorySelection(h.id) }}
+                onExportCSV={(e) => { e.stopPropagation(); exportHistoryCSV(h) }}
+                onExportExcel={(e) => { e.stopPropagation(); exportHistoryExcel(h) }}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    )}
 
       {/* ── 1. Stage Images ── */}
       <section className="rounded-2xl border border-line bg-card p-6 shadow-sm">
@@ -921,7 +1106,7 @@ export function Dashboard() {
       <img src={activeJob.imageUrl} alt="uploaded" className="mt-3 w-full rounded-xl border border-line object-contain lg:max-h-[calc(80vh-4rem)]" />
       {activeJob.reason && (
         <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-          <span className="font-semibold">⚠️ Document Quality Notice:</span> {activeJob.reason}
+          <span className="font-semibold">Document Quality Notice:</span> {activeJob.reason}
         </div>
       )}
     </div>
@@ -930,7 +1115,9 @@ export function Dashboard() {
           <div className="rounded-2xl border border-line bg-card p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Extracted Data</h2>
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Needs Manual Review</span>
+              <span className="rounded-full bg-[#e3eee9] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#477968]">
+                Please Review
+              </span>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -939,14 +1126,15 @@ export function Dashboard() {
                 const veryLow = field.confidence < 0.5
                 return (
                   <div key={field.id}>
-                    <label className="flex items-center justify-between text-xs font-medium text-muted">
-                      <span className={veryLow ? 'font-bold text-danger' : lowConfidence ? 'font-semibold text-amber-700' : ''}>
-                        {field.label}
-                        {veryLow && ' ⚠️ Needs Verification'}
-                        {lowConfidence && !veryLow && ' ❓ Review Suggested'}
-                      </span>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <input
+                        type="text"
+                        value={field.label}
+                        onChange={(e) => updateFieldLabel(activeJob.id, field.id, e.target.value)}
+                        className={`flex-1 rounded-md border bg-paper px-2 py-0.5 text-xs font-medium outline-none transition focus:ring-1 ${veryLow ? 'border-danger text-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 text-amber-700 focus:ring-amber-500' : 'border-line text-muted focus:border-accent focus:ring-accent'}`}
+                      />
                       {renderConfidenceBadge(field.confidence)}
-                    </label>
+                    </div>
                     <input
                       type="text"
                       value={field.value}
@@ -1112,7 +1300,7 @@ export function Dashboard() {
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Confirmed & Saved ({confirmedJobs.length})</h2>
               <div className="flex gap-2">
                 <button onClick={() => setMergeViewOpen((s) => !s)} className="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-card cursor-pointer">{mergeViewOpen ? 'Hide Merge View' : 'Merge View'}</button>
-                <button onClick={() => void exportBatchCSV()} className="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-card cursor-pointer">Export All CSV</button>
+                <button onClick={() => void exportBatchCSV()} className="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-card cursor-pointer">Export All In One CSV File</button>
               </div>
             </div>
 
