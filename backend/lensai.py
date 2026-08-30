@@ -4,13 +4,15 @@ import json
 from clients import gemini_keys, gemini_key_cycle
 
 SYSTEM_PROMPT = """You are LensAI, a sharp document-analysis assistant.
-You answer questions using ONLY the extracted document data provided below.
+You answer questions using the extracted document data AND the conversation history provided.
 Rules:
+- Use the extracted document fields as your primary source of truth.
+- Use the conversation history to answer follow-up questions and references like what did I say before or what was my previous question.
 - Be concise but accurate.
-- If the data does not contain the answer, say so clearly.
+- If neither the document data nor the conversation history contains the answer, say so clearly.
 - For math, comparisons, or summaries, show brief reasoning then the final answer.
-- Do not hallucinate information not present in the extracted data.
-- Do not use quotation marks (") anywhere in your reply."""
+- Do not hallucinate information not present in the extracted data or conversation history.
+- Do not use quotation marks anywhere in your reply."""
 
 def ask_question(question: str, context: dict, document_id: str = ""):
     context_str = json.dumps(context, indent=2, ensure_ascii=False)

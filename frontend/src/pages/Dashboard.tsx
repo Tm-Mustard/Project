@@ -176,8 +176,9 @@ export function Dashboard() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
   const pollIntervals = useRef<Map<string, number>>(new Map())
+  const chatSectionRef = useRef<HTMLDivElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
   const cancelledIds = useRef<Set<string>>(new Set())
   const activeJob = jobs.find((j) => j.id === activeJobId) ?? null
@@ -239,11 +240,13 @@ export function Dashboard() {
       })
   }, [user, confirmedJobs.length])
 
-  /* ── scroll chat to bottom ── */
+  /* ── scroll to bottom on new assistant message ── */
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const last = chatMessages[chatMessages.length - 1]
+    if (last?.role === 'assistant') {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [chatMessages])
-
   /* ── cleanup polling on unmount ── */
   useEffect(() => {
     return () => {
@@ -266,6 +269,7 @@ export function Dashboard() {
       return changed ? next : prev
     })
   }, [failedJobs.map((j) => j.id).join(',')])
+
 
   async function onSignOut() {
     await signOut()
@@ -601,34 +605,9 @@ export function Dashboard() {
     const job = jobs.find((j) => j.id === jobId)
     if (!job || job.phase !== 'on_review') return
   
-    let historyImageUrl = job.imageUrl
-  
-    if (job.imagePath) {
-      try {
-        const ext = job.imagePath.split('.').pop()?.toLowerCase() || 'jpg'
-        const historyPath = `history/${user?.id}/${job.document_id}.${ext}`
-  
-        const { error: copyError } = await supabase.storage
-          .from('images')
-          .copy(job.imagePath, historyPath)
-  
-        if (copyError) {
-          console.error('[confirmJob] copy failed:', copyError)
-        } else {
-          const { data: historyUrlData } = supabase.storage
-            .from('images')
-            .getPublicUrl(historyPath)
-          historyImageUrl = historyUrlData.publicUrl
-          console.log('[confirmJob] history image url:', historyImageUrl)
-        }
-      } catch (e) {
-        console.error('[confirmJob] unexpected error during copy:', e)
-      }
-    }
-  
     await supabase.from('extractions').insert({
       user_id: user?.id,
-      image_url: historyImageUrl,
+      image_url: job.imageUrl,
       data: job.extracted,
       confirmed: true,
     })
@@ -636,22 +615,13 @@ export function Dashboard() {
     setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, phase: 'confirmed' } : j)))
   }
 
-  /* ── delete from supabase storage ── */
-  async function deleteImageFromStorage(path: string) {
-    if (!path) return
-    await supabase.storage.from('images').remove([path])
-  }
 
-  /* ── export with auto-delete ── */
+  /* ── export ── */
   async function exportCSV(job: DocumentJob) {
     const headers = job.extracted.map((f) => f.label).join(',')
     const values = job.extracted.map((f) => `"${f.value.replace(/"/g, '""')}"`).join(',')
     const blob = new Blob([`${headers}\n${values}`], { type: 'text/csv' })
     downloadBlob(blob, `openlens-${job.document_id}.csv`)
-    if (job.imagePath && !job.deletedFromStorage) {
-      await deleteImageFromStorage(job.imagePath)
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, deletedFromStorage: true } : j)))
-    }
   }
   function exportHistoryCSV(h: HistoryRecord) {
     const headers = h.data.map((f) => f.label).join(',')
@@ -705,10 +675,6 @@ export function Dashboard() {
     const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sheet1"><Table>${rows}</Table></Worksheet></Workbook>`
     const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
     downloadBlob(blob, `openlens-${job.document_id}.xls`)
-    if (job.imagePath && !job.deletedFromStorage) {
-      await deleteImageFromStorage(job.imagePath)
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, deletedFromStorage: true } : j)))
-    }
   }
 
   async function exportBatchCSV() {
@@ -722,14 +688,6 @@ export function Dashboard() {
     })
     const blob = new Blob([`${headers}\n${rows.join('\n')}`], { type: 'text/csv' })
     downloadBlob(blob, `openlens-batch-${Date.now()}.csv`)
-    // Delete all confirmed images
-    await Promise.all(
-      confirmedJobs.map(async (job) => {
-        if (job.imagePath && !job.deletedFromStorage) {
-          await deleteImageFromStorage(job.imagePath)
-        }
-      })
-    )
     setJobs((prev) => prev.map((j) => (j.phase === 'confirmed' ? { ...j, deletedFromStorage: true } : j)))
   }
 
@@ -745,11 +703,19 @@ export function Dashboard() {
     try {
       const session = await supabase.auth.getSession()
       const token = session.data.session?.access_token
+      const historyText = chatMessages
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n')
+    
+      const fullQuestion = historyText
+        ? `Previous conversation:\n${historyText}\n\nNew question from user: ${question}`
+        : question
+      
       const res = await fetch(`${import.meta.env.VITE_API_URL}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          question,
+          question: fullQuestion,
           context: activeJob.extracted.reduce((acc, f) => ({ ...acc, [f.label]: f.value }), {}),
           document_id: activeJob.document_id,
         }),
@@ -1148,7 +1114,17 @@ export function Dashboard() {
 
             <div className="mt-6 flex flex-wrap gap-3">
               <button onClick={() => confirmJob(activeJob.id)} className="rounded-lg bg-accent px-6 py-3 text-sm font-bold text-white shadow transition hover:bg-accent-hover cursor-pointer">Confirm & Save</button>
-              <button onClick={() => setChatOpen(true)} className="rounded-lg border border-line bg-paper px-4 py-3 text-sm font-medium text-ink transition hover:bg-card cursor-pointer">Ask AI about this</button>
+              <button
+                onClick={() => {
+                  setChatOpen(true)
+                  setTimeout(() => {
+                    chatSectionRef.current?.scrollIntoView({ behavior: 'smooth' })
+                  }, 50)
+                }}
+                className="rounded-lg border border-line bg-paper px-4 py-3 text-sm font-medium text-ink transition hover:bg-card cursor-pointer"
+              >
+                Ask AI about this
+            </button>
             </div>
             <p className="mt-2 text-xs text-muted">After confirming, you can download the data as CSV or Excel. The image will be removed from storage after export.</p>
           </div>
@@ -1157,7 +1133,7 @@ export function Dashboard() {
 
       {/* ── Q&A Chat Panel ── */}
       {chatOpen && activeJob && (
-        <section className="mt-6 rounded-2xl border border-line bg-card p-4 sm:p-5 shadow-sm">
+        <section ref={chatSectionRef} className="mt-6 rounded-2xl border border-line bg-card p-4 sm:p-5 shadow-sm">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
               Ask about this document
@@ -1171,7 +1147,7 @@ export function Dashboard() {
           </div>
 
           {/* Taller on mobile so it’s usable; fixed on desktop */}
-          <div className="mt-3 flex h-[50vh] min-h-[16rem] flex-col rounded-xl border border-line bg-paper sm:h-64">
+          <div className="mt-3 flex h-[50vh] min-h-[28rem] flex-col rounded-xl border border-line bg-paper sm:h-64">
             <div className="flex-1 space-y-3 overflow-y-auto p-3">
               {chatMessages.length === 0 && (
                 <p className="px-2 pt-4 text-center text-xs leading-relaxed text-muted">
@@ -1194,7 +1170,6 @@ export function Dashboard() {
                   </div>
                 </div>
               )}
-              <div ref={chatEndRef} />
             </div>
 
             {/* Input row: button can never shrink or wrap onto a second line */}
@@ -1227,11 +1202,14 @@ export function Dashboard() {
             Pending Review ({reviewJobs.length})
           </h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {reviewJobs.map((job) => (
+          {reviewJobs.map((job) => (
+            <div
+              key={job.id}
+              className={`flex items-center gap-2.5 sm:gap-3 rounded-xl border p-2.5 sm:p-3 text-left transition overflow-hidden ${activeJobId === job.id ? 'border-accent bg-accent/5' : 'border-line bg-paper hover:bg-card'}`}
+            >
               <button
-                key={job.id}
                 onClick={() => { setActiveJobId(job.id); setChatOpen(false) }}
-                className={`flex items-center gap-2.5 sm:gap-3 rounded-xl border p-2.5 sm:p-3 text-left transition overflow-hidden ${activeJobId === job.id ? 'border-accent bg-accent/5' : 'border-line bg-paper hover:bg-card'} cursor-pointer`}
+                className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 text-left cursor-pointer"
               >
                 <img
                   src={job.imageUrl}
@@ -1239,21 +1217,25 @@ export function Dashboard() {
                   className="h-10 w-10 sm:h-12 sm:w-12 shrink-0 rounded-lg border border-line object-cover"
                 />
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <p className="truncate text-sm font-medium text-ink">
-                    {job.fileName}
-                  </p>
-                  <p className="text-[10px] text-muted">
-                    {formatDate(job.createdAt)}
-                  </p>
+                  <p className="truncate text-sm font-medium text-ink">{job.fileName}</p>
+                  <p className="text-[10px] text-muted">{formatDate(job.createdAt)}</p>
                 </div>
                 <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
                   Review
                 </span>
               </button>
-            ))}
-          </div>
-        </section>
-      )}
+              <button
+                onClick={() => retakeDocument(job.document_id)}
+                className="shrink-0 flex h-6 w-6 items-center justify-center rounded-full border border-danger/30 bg-danger/10 text-danger text-xs font-bold transition hover:bg-danger/20 cursor-pointer"
+                title="Discard"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+            </div>
+          </section>
+        )}
 
       {/* ── Confirmed Results ── */}
       {confirmedJobs.length > 0 && (
