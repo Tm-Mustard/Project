@@ -413,7 +413,7 @@ export function Dashboard() {
     const timeoutId = window.setTimeout(() => {
       console.warn('[pipeline] request timed out after 20s')
       controller.abort()
-    }, 20000)
+    }, 60000)
   
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/imgpip`, {
