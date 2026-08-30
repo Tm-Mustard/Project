@@ -11,7 +11,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { session } = useAuth()
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-3xl flex-col px-5 py-6">
+    <div className="mx-auto flex min-h-svh max-w-7xl flex-col px-5 py-6">
       <header className="mb-10 flex items-center justify-between gap-4">
         <Link to="/" className="text-lg font-semibold tracking-tight">
           OpenLens
