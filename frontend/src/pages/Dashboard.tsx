@@ -13,7 +13,7 @@ type Phase = 'idle' | 'uploading' | 'submitting' | 'processing' | 'on_review' | 
 interface ExtractedField {
   id: string
   label: string
-  value: string
+  value: unknown
   confidence: number
 }
 
@@ -83,6 +83,11 @@ const STORAGE_KEY = 'openlens_dashboard_state'
 function formatDate(value: string | undefined) {
   if (!value) return '—'
   return new Date(value).toLocaleString()
+}
+function fieldValueToString(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
 }
 
 function generateUUID() {
@@ -376,7 +381,7 @@ export function Dashboard() {
             ([label, value], i) => ({
               id: `${documentId}-${i}`,
               label,
-              value: String(value),
+              value,                // ← just pass it through, no String() coercion
               confidence: data.field_confidences?.[label] ?? 0.8,
             })
           )
@@ -580,7 +585,7 @@ export function Dashboard() {
     })
   }
 
-  function updateField(jobId: string, fieldId: string, value: string) {
+  function updateField(jobId: string, fieldId: string, value: unknown) {
     setJobs((prev) =>
       prev.map((j) =>
         j.id === jobId && j.phase === 'on_review'
@@ -619,20 +624,21 @@ export function Dashboard() {
   /* ── export ── */
   async function exportCSV(job: DocumentJob) {
     const headers = job.extracted.map((f) => f.label).join(',')
-    const values = job.extracted.map((f) => `"${f.value.replace(/"/g, '""')}"`).join(',')
+    const values = job.extracted.map((f) => `"${fieldValueToString(f.value).replace(/"/g, '""')}"`).join(',')
     const blob = new Blob([`${headers}\n${values}`], { type: 'text/csv' })
     downloadBlob(blob, `openlens-${job.document_id}.csv`)
   }
   function exportHistoryCSV(h: HistoryRecord) {
     const headers = h.data.map((f) => f.label).join(',')
-    const values = h.data.map((f) => `"${f.value.replace(/"/g, '""')}"`).join(',')
+    const values = h.data.map((f) => `"${fieldValueToString(f.value).replace(/"/g, '""')}"`).join(',')
     const blob = new Blob([`${headers}\n${values}`], { type: 'text/csv' })
     downloadBlob(blob, `history-${h.id}.csv`)
   }
   
+  
   function exportHistoryExcel(h: HistoryRecord) {
     const rows = h.data.map(
-      (f) => `<Row><Cell><Data ss:Type="String">${f.label}</Data></Cell><Cell><Data ss:Type="String">${f.value}</Data></Cell></Row>`
+      (f) => `<Row><Cell><Data ss:Type="String">${fieldValueToString(f.value)}</Data></Cell><Cell><Data ss:Type="String">${fieldValueToString(f.value)}</Data></Cell></Row>`
     ).join('')
     const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sheet1"><Table>${rows}</Table></Worksheet></Workbook>`
     const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
@@ -644,7 +650,7 @@ export function Dashboard() {
     const headers = ['Date', ...allLabels].join(',')
     const rows = selected.map((h) => {
       const fieldMap = new Map(h.data.map((f) => [f.label, f.value]))
-      const values = allLabels.map((l) => `"${(fieldMap.get(l) ?? '').replace(/"/g, '""')}"`).join(',')
+      const values = allLabels.map((l) => `"${fieldValueToString(fieldMap.get(l)).replace(/"/g, '""')}"`).join(',')
       return `"${new Date(h.created_at).toLocaleString()}",${values}`
     })
     const blob = new Blob([`${headers}\n${rows.join('\n')}`], { type: 'text/csv' })
@@ -659,7 +665,7 @@ export function Dashboard() {
       const cells = ['Date', ...allLabels].map((l) =>
         l === 'Date'
           ? `<Cell><Data ss:Type="String">${new Date(h.created_at).toLocaleString()}</Data></Cell>`
-          : `<Cell><Data ss:Type="String">${fieldMap.get(l) ?? ''}</Data></Cell>`
+          : `<Cell><Data ss:Type="String">${fieldValueToString(fieldMap.get(l))}</Data></Cell>`
       ).join('')
       return `<Row>${cells}</Row>`
     }).join('')
@@ -670,7 +676,7 @@ export function Dashboard() {
 
   async function exportExcel(job: DocumentJob) {
     const rows = job.extracted.map(
-      (f) => `<Row><Cell><Data ss:Type="String">${f.label}</Data></Cell><Cell><Data ss:Type="String">${f.value}</Data></Cell></Row>`
+      (f) => `<Row><Cell><Data ss:Type="String">${f.label}</Data></Cell><Cell><Data ss:Type="String">${fieldValueToString(f.value)}</Data></Cell></Row>`
     ).join('')
     const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sheet1"><Table>${rows}</Table></Worksheet></Workbook>`
     const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
@@ -683,7 +689,7 @@ export function Dashboard() {
     const headers = ['Document', 'Model', 'Date', ...allLabels].join(',')
     const rows = confirmedJobs.map((job) => {
       const fieldMap = new Map(job.extracted.map((f) => [f.label, f.value]))
-      const values = allLabels.map((l) => `"${(fieldMap.get(l) ?? '').replace(/"/g, '""')}"`).join(',')
+      const values = allLabels.map((l) => `"${fieldValueToString(fieldMap.get(l)).replace(/"/g, '""')}"`).join(',')
       return `"${job.fileName}","${job.model}","${job.createdAt}",${values}`
     })
     const blob = new Blob([`${headers}\n${rows.join('\n')}`], { type: 'text/csv' })
@@ -804,7 +810,7 @@ export function Dashboard() {
           {(expanded ? h.data : h.data.slice(0, 3)).map((f) => (
             <div key={f.id} className="flex justify-between text-xs gap-2">
               <span className="text-muted shrink-0">{f.label}:</span>
-              <span className={`text-ink text-right ${expanded ? 'break-all' : 'truncate'}`}>{f.value}</span>
+              <span className={`text-ink text-right ${expanded ? 'break-all' : 'truncate'}`}>{fieldValueToString(f.value)}</span>
             </div>
           ))}
           {!expanded && h.data.length > 3 && (
@@ -1099,27 +1105,37 @@ export function Dashboard() {
                       />
                       {renderConfidenceBadge(field.confidence)}
                     </div>
-                      {Array.isArray(field.value) || (typeof field.value === 'object' && field.value !== null) ? (
-                <textarea
-                  rows={Array.isArray(field.value) ? Math.min(field.value.length + 1, 6) : 3}
-                  value={JSON.stringify(field.value, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      updateField(activeJob.id, field.id, JSON.parse(e.target.value))
-                    } catch {
-                      updateField(activeJob.id, field.id, e.target.value)
-                    }
-                  }}
-                  className={`mt-1 w-full rounded-lg border bg-paper px-3 py-2 font-mono text-xs text-ink outline-none transition focus:ring-1 resize-none ${veryLow ? 'border-danger focus:border-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500' : 'border-line focus:border-accent focus:ring-accent'}`}
-                />
-              ) : (
-                <input
-                  type="text"
-                  value={field.value ?? ''}
-                  onChange={(e) => updateField(activeJob.id, field.id, e.target.value)}
-                  className={`mt-1 w-full rounded-lg border bg-paper px-3 py-2 text-sm text-ink outline-none transition focus:ring-1 ${veryLow ? 'border-danger focus:border-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500' : 'border-line focus:border-accent focus:ring-accent'}`}
-                />
-              )}
+                    {Array.isArray(field.value) ? (
+  <div className="mt-1 space-y-2">
+    {(field.value as Record<string, unknown>[]).map((item, itemIndex) => (
+      <div key={itemIndex} className="rounded-lg border border-line bg-paper p-2 space-y-1">
+        {Object.entries(item).map(([key, val]) => (
+          <div key={key} className="flex items-center gap-2">
+            <span className="text-xs text-muted w-24 shrink-0">{key}</span>
+            <input
+              type="text"
+              value={fieldValueToString(val)}
+              onChange={(e) => {
+                const updated = (field.value as Record<string, unknown>[]).map((row, i) =>
+                  i === itemIndex ? { ...row, [key]: e.target.value } : row
+                )
+                updateField(activeJob.id, field.id, updated)
+              }}
+              className={`flex-1 rounded-lg border bg-paper px-3 py-1.5 text-sm text-ink outline-none transition focus:ring-1 ${veryLow ? 'border-danger focus:border-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500' : 'border-line focus:border-accent focus:ring-accent'}`}
+            />
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+) : (
+  <input
+    type="text"
+    value={fieldValueToString(field.value)}
+    onChange={(e) => updateField(activeJob.id, field.id, e.target.value)}
+    className={`mt-1 w-full rounded-lg border bg-paper px-3 py-2 text-sm text-ink outline-none transition focus:ring-1 ${veryLow ? 'border-danger focus:border-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500' : 'border-line focus:border-accent focus:ring-accent'}`}
+  />
+)}
                   </div>
                 )
               })}
@@ -1276,7 +1292,9 @@ export function Dashboard() {
                         <span>{field.label}</span>
                         {renderConfidenceBadge(field.confidence)}
                       </label>
-                      <div className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink">{field.value}</div>
+                      <div className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink">
+                        {fieldValueToString(field.value)}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1321,7 +1339,7 @@ export function Dashboard() {
                           <td className="px-3 py-2 font-medium text-ink">{job.fileName}</td>
                           <td className="px-3 py-2 text-muted">{job.model}</td>
                           {allLabels.map((label) => (
-                            <td key={label} className="px-3 py-2 text-ink">{fieldMap.get(label) ?? '—'}</td>
+                            <td key={label} className="px-3 py-2 text-ink">{fieldValueToString(fieldMap.get(label)) || '—'}</td>
                           ))}
                         </tr>
                       )
