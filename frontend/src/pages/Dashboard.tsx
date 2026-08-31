@@ -836,7 +836,6 @@ export function Dashboard() {
       </div>
     )
   }
-
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       {/* Header */}
@@ -1122,7 +1121,7 @@ export function Dashboard() {
                 }}
                 className="rounded-lg border border-line bg-paper px-4 py-3 text-sm font-medium text-ink transition hover:bg-card cursor-pointer"
               >
-                Ask AI about this
+                Ask LensAI
             </button>
             </div>
             <p className="mt-2 text-xs text-muted">After confirming, you can download the data as CSV or Excel. The image will be removed from storage after export.</p>
