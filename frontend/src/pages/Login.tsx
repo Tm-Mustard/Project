@@ -62,14 +62,14 @@ export function Login() {
         <button
           type="submit"
           disabled={submitting || !configured}
-          className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+          className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 cursor-pointer"
         >
           {submitting ? 'Signing in…' : 'Log in'}
         </button>
       </form>
       <p className="mt-6 text-sm text-muted">
         No account yet?{' '}
-        <Link to="/signup" className="font-medium text-accent hover:underline">
+        <Link to="/signup" className="font-medium text-accent hover:underline cursor-pointer">
           Sign up
         </Link>
       </p>
