@@ -836,7 +836,6 @@ export function Dashboard() {
       </div>
     )
   }
-
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       {/* Header */}
@@ -1100,12 +1099,27 @@ export function Dashboard() {
                       />
                       {renderConfidenceBadge(field.confidence)}
                     </div>
-                    <input
-                      type="text"
-                      value={field.value}
-                      onChange={(e) => updateField(activeJob.id, field.id, e.target.value)}
-                      className={`mt-1 w-full rounded-lg border bg-paper px-3 py-2 text-sm text-ink outline-none transition focus:ring-1 ${veryLow ? 'border-danger focus:border-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500' : 'border-line focus:border-accent focus:ring-accent'}`}
-                    />
+                      {Array.isArray(field.value) || (typeof field.value === 'object' && field.value !== null) ? (
+                <textarea
+                  rows={Array.isArray(field.value) ? Math.min(field.value.length + 1, 6) : 3}
+                  value={JSON.stringify(field.value, null, 2)}
+                  onChange={(e) => {
+                    try {
+                      updateField(activeJob.id, field.id, JSON.parse(e.target.value))
+                    } catch {
+                      updateField(activeJob.id, field.id, e.target.value)
+                    }
+                  }}
+                  className={`mt-1 w-full rounded-lg border bg-paper px-3 py-2 font-mono text-xs text-ink outline-none transition focus:ring-1 resize-none ${veryLow ? 'border-danger focus:border-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500' : 'border-line focus:border-accent focus:ring-accent'}`}
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={field.value ?? ''}
+                  onChange={(e) => updateField(activeJob.id, field.id, e.target.value)}
+                  className={`mt-1 w-full rounded-lg border bg-paper px-3 py-2 text-sm text-ink outline-none transition focus:ring-1 ${veryLow ? 'border-danger focus:border-danger focus:ring-danger' : lowConfidence ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500' : 'border-line focus:border-accent focus:ring-accent'}`}
+                />
+              )}
                   </div>
                 )
               })}
@@ -1122,7 +1136,7 @@ export function Dashboard() {
                 }}
                 className="rounded-lg border border-line bg-paper px-4 py-3 text-sm font-medium text-ink transition hover:bg-card cursor-pointer"
               >
-                Ask AI about this
+                Ask LensAI
             </button>
             </div>
             <p className="mt-2 text-xs text-muted">After confirming, you can download the data as CSV or Excel. The image will be removed from storage after export.</p>

@@ -136,7 +136,9 @@ export function Layout({ children }: { children: ReactNode }) {
                     <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
                   </svg>
                 </span>
-                Open<span className="text-accent">Lens</span>
+                <span className="whitespace-nowrap">
+                  Open<span className="text-accent">Lens</span>
+                </span>
               </Link>
 
               <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted">
