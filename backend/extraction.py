@@ -12,7 +12,6 @@ MODEL_ROUTER = {
 
 async def run_extraction(image_path: str, model_name: str, document_id: str, user_id: str):
     try:
-        # CRITICAL FIX: Run blocking Supabase + CV operations in a thread
         file_bytes = await asyncio.to_thread(
             lambda: supabase_admin.storage.from_("images").download(image_path)
         )
@@ -27,7 +26,6 @@ async def run_extraction(image_path: str, model_name: str, document_id: str, use
         if model_fn is None:
             return {"status": "extraction_failed", "message": f"Model '{model_name}' not supported"}
 
-        # CRITICAL FIX: Run blocking model inference in a thread so it doesn't hang the event loop
         parsed, last_error = await asyncio.to_thread(model_fn, processed_bytes)
 
         if parsed is None:
