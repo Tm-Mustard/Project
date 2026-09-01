@@ -31,7 +31,6 @@ def _extract_json(raw_text: str):
     except json.JSONDecodeError:
         pass
 
-    # Fallback: find the first top-level {...} object anywhere in the text
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         return json.loads(match.group(0))
@@ -62,11 +61,7 @@ def run(image_bytes: bytes):
             )
             response = client.chat.completions.create(
                 model=MODEL_NAME,
-                # NOTE: response_format is NOT supported by this model on
-                # OpenRouter's free endpoint — passing it does nothing
-                # (and can make the model wrap the JSON in extra text).
-                # Reasoning is turned off so it answers directly instead of
-                # emitting reasoning traces that pollute the content field.
+               
                 extra_body={"reasoning": {"enabled": False}},
                 messages=[{
                     "role": "user",
